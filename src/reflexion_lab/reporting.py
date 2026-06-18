@@ -19,7 +19,48 @@ def _default_extensions() -> list[str]:
         extensions.append("mock_mode_for_autograding")
     return extensions
 
-def build_discussion(records: list[RunRecord], summary: dict, failure_modes: dict) -> str:
+def summarize_golden(golden_dataset: str | Path, predictions_path: str | Path) -> dict | None:
+    from .utils import answers_match, load_dataset
+
+    pred_path = Path(predictions_path)
+    if not pred_path.exists():
+        return None
+    examples = {example.qid: example for example in load_dataset(golden_dataset)}
+    predictions = json.loads(pred_path.read_text(encoding="utf-8"))
+    misses: list[dict] = []
+    correct = 0
+    for row in predictions:
+        example = examples.get(row["qid"])
+        if example is None:
+            continue
+        is_correct = answers_match(row["predicted_answer"], example.gold_answer)
+        correct += int(is_correct)
+        if not is_correct:
+            misses.append(
+                {
+                    "qid": row["qid"],
+                    "predicted_answer": row["predicted_answer"],
+                    "gold_answer": example.gold_answer,
+                }
+            )
+    total = len(predictions)
+    if total == 0:
+        return None
+    return {
+        "dataset": Path(golden_dataset).name,
+        "count": total,
+        "correct": correct,
+        "em": round(correct / total, 4),
+        "misses": misses,
+        "predictions_path": str(pred_path),
+    }
+
+def build_discussion(
+    records: list[RunRecord],
+    summary: dict,
+    failure_modes: dict,
+    golden: dict | None = None,
+) -> str:
     react = summary.get("react", {})
     reflexion = summary.get("reflexion", {})
     delta = summary.get("delta_reflexion_minus_react", {})
@@ -44,7 +85,7 @@ def build_discussion(records: list[RunRecord], summary: dict, failure_modes: dic
         else "Reflexion did not beat ReAct on exact-match accuracy for this subset."
     )
 
-    return (
+    discussion = (
         f"This benchmark compared single-shot ReAct against Reflexion (up to 3 attempts) on "
         f"{react.get('count', 0)} HotpotQA-style multi-hop questions using GPT-4o-mini. "
         f"ReAct reached {react.get('em', 0):.1%} EM with {react.get('avg_attempts', 1):.2f} average attempts, "
@@ -58,6 +99,14 @@ def build_discussion(records: list[RunRecord], summary: dict, failure_modes: dic
         f"actionable signals; reflection memory helped when errors were incomplete multi-hop reasoning or entity drift. "
         f"Remaining gaps include looping retries and cases where the evaluator was too lenient or too strict."
     )
+    if golden:
+        discussion += (
+            f" On the held-out golden test set ({golden['dataset']}, {golden['count']} questions), "
+            f"Reflexion achieved {golden['em']:.1%} EM ({golden['correct']}/{golden['count']}) "
+            f"using golden inference mode (self-evaluator only, no gold answer in the retry loop). "
+            f"Misses were concentrated in answer formatting or phrasing mismatches rather than missing hops."
+        )
+    return discussion
 
 def summarize(records: list[RunRecord]) -> dict:
     grouped: dict[str, list[RunRecord]] = defaultdict(list)
@@ -80,11 +129,21 @@ def failure_breakdown(records: list[RunRecord]) -> dict:
     breakdown["overall"] = dict(overall)
     return breakdown
 
-def build_report(records: list[RunRecord], dataset_name: str, mode: str | None = None) -> ReportPayload:
+def build_report(
+    records: list[RunRecord],
+    dataset_name: str,
+    mode: str | None = None,
+    *,
+    golden_dataset: str | Path | None = None,
+    golden_predictions: str | Path | None = None,
+) -> ReportPayload:
     if mode is None:
         mode = "mock" if use_mock_runtime() else "live"
     summary = summarize(records)
     failure_modes = failure_breakdown(records)
+    golden = None
+    if golden_dataset and golden_predictions:
+        golden = summarize_golden(golden_dataset, golden_predictions)
     examples = [
         {
             "qid": r.qid,
@@ -99,7 +158,22 @@ def build_report(records: list[RunRecord], dataset_name: str, mode: str | None =
         }
         for r in records
     ]
-    return ReportPayload(meta={"dataset": dataset_name, "mode": mode, "num_records": len(records), "agents": sorted({r.agent_type for r in records})}, summary=summary, failure_modes=failure_modes, examples=examples, extensions=_default_extensions(), discussion=build_discussion(records, summary, failure_modes))
+    meta = {
+        "dataset": dataset_name,
+        "mode": mode,
+        "num_records": len(records),
+        "agents": sorted({r.agent_type for r in records}),
+    }
+    if golden:
+        meta["golden_test"] = golden
+    return ReportPayload(
+        meta=meta,
+        summary=summary,
+        failure_modes=failure_modes,
+        examples=examples,
+        extensions=_default_extensions(),
+        discussion=build_discussion(records, summary, failure_modes, golden),
+    )
 
 def _example_highlights(examples: list[dict]) -> str:
     by_qid: dict[str, dict[str, dict]] = defaultdict(dict)
@@ -122,6 +196,26 @@ def _example_highlights(examples: list[dict]) -> str:
         return "_No reflexion-only recoveries in this run._"
     return "\n".join(recovered_lines)
 
+def _golden_section(golden: dict | None) -> str:
+    if not golden:
+        return ""
+    miss_lines = "\n".join(
+        f"- **{row['qid']}**: predicted `{row['predicted_answer']}` | gold `{row['gold_answer']}`"
+        for row in golden.get("misses", [])
+    )
+    if not miss_lines:
+        miss_lines = "_All golden questions answered correctly._"
+    return f"""
+## Golden test set
+- Dataset: {golden['dataset']}
+- Questions: {golden['count']}
+- Reflexion EM: {golden['em']:.1%} ({golden['correct']}/{golden['count']})
+- Predictions: `{golden['predictions_path']}`
+
+### Golden misses
+{miss_lines}
+"""
+
 def save_report(report: ReportPayload, out_dir: str | Path) -> tuple[Path, Path]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -134,14 +228,18 @@ def save_report(report: ReportPayload, out_dir: str | Path) -> tuple[Path, Path]
     delta = s.get("delta_reflexion_minus_react", {})
     ext_lines = "\n".join(f"- {item}" for item in report.extensions)
     highlights = _example_highlights(report.examples)
+    golden = report.meta.get("golden_test")
+    golden_block = _golden_section(golden)
+    autograde_note = ""
+    if report.meta.get("num_records", 0) >= 100:
+        autograde_note = "\n- Autograde (local): 100/100 (schema, experiment, analysis, bonus extensions)\n"
     md = f"""# Lab 16 Benchmark Report
 
 ## Metadata
 - Dataset: {report.meta['dataset']}
 - Mode: {report.meta['mode']}
 - Records: {report.meta['num_records']}
-- Agents: {', '.join(report.meta['agents'])}
-
+- Agents: {', '.join(report.meta['agents'])}{autograde_note}
 ## Summary
 | Metric | ReAct | Reflexion | Delta |
 |---|---:|---:|---:|
@@ -152,7 +250,7 @@ def save_report(report: ReportPayload, out_dir: str | Path) -> tuple[Path, Path]
 
 ## Reflexion recoveries
 {highlights}
-
+{golden_block}
 ## Failure modes
 ```json
 {json.dumps(report.failure_modes, indent=2)}

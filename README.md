@@ -2,114 +2,141 @@
 
 ## Tổng quan
 
-Bài lab giúp bạn hiểu và triển khai **Reflexion Agent** — một kiến trúc agent có khả năng tự phản chiếu (self-reflection) để cải thiện câu trả lời qua nhiều lần thử.
+Bài lab triển khai **Reflexion Agent** — kiến trúc agent tự phản chiếu (self-reflection) để cải thiện câu trả lời multi-hop QA qua nhiều lần thử.
 
-Repo cung cấp một scaffold hoàn chỉnh với mock data. Nhiệm vụ của bạn là **thay thế mock bằng LLM thật** và chạy benchmark trên dữ liệu thật.
+**Trạng thái repo:** Đã hoàn thiện với **OpenAI GPT-4o-mini**, benchmark 100 câu HotpotQA, Golden Test Set, và Streamlit demo.
 
-## Cách hoạt động của Scaffold
+## Kết quả chính
 
-Repo sử dụng **Mock Runtime** (`mock_runtime.py`) để giả lập phản hồi LLM:
-- `actor_answer()` → trả lời câu hỏi (giả lập)
-- `evaluator()` → chấm điểm đúng/sai (giả lập)
-- `reflector()` → phân tích lỗi và đề xuất chiến thuật mới (giả lập)
+| Đánh giá | ReAct | Reflexion |
+|----------|------:|----------:|
+| HotpotQA 100 câu (`outputs/full_run_100/`) | 70.0% EM | **84.0% EM** |
+| Golden Test 20 câu (`outputs/golden_run/`) | — | **90.0% EM** |
+| Autograde (local) | | **100/100** |
 
-Kết quả mock hoàn toàn deterministic — giúp bạn hiểu flow trước khi tốn chi phí API.
+## Cài đặt
 
-### Chạy thử với mock
 ```bash
-# Cài đặt môi trường
 python -m venv .venv
+# Windows
+.\.venv\Scripts\activate
+# macOS/Linux
 source .venv/bin/activate
+
 pip install -r requirements.txt
+```
 
-# Chạy benchmark với mock data
-python run_benchmark.py --dataset data/hotpot_mini.json --out-dir outputs/sample_run
+Tạo file `.env` từ `.env.example`:
 
-# Chạy chấm điểm tự động
+```env
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o-mini
+USE_MOCK_RUNTIME=0
+GOLDEN_INFERENCE=0
+CONTEXT_TOP_K=10
+CONTEXT_FULL_THRESHOLD=12
+```
+
+## Chạy benchmark
+
+### Mock (miễn phí, deterministic)
+
+```bash
+python run_benchmark.py --dataset data/hotpot_mini.json --out-dir outputs/sample_run --mock
 python autograde.py --report-path outputs/sample_run/report.json
 ```
 
-## Nhiệm vụ của Học viên
+### Live — benchmark đầy đủ (100 câu)
 
-### Bước 1: Hiểu flow (đọc code)
-Đọc và hiểu luồng hoạt động trong các file sau:
-- `src/reflexion_lab/agents.py` — Vòng lặp chính của ReAct và Reflexion Agent
-- `src/reflexion_lab/mock_runtime.py` — Logic giả lập (để biết cần thay thế gì)
-- `src/reflexion_lab/schemas.py` — Cấu trúc dữ liệu (có TODO cần hoàn thiện)
-- `src/reflexion_lab/prompts.py` — System prompts (có TODO cần viết)
+```bash
+# Tạo dataset (nếu chưa có)
+python scripts/build_hotpot_subset.py --count 100 --out data/hotpot_subset_100.json
 
-### Bước 2: Hoàn thiện TODO trong scaffold
-1. **`schemas.py`**: Định nghĩa các trường cho `JudgeResult` và `ReflectionEntry` (hiện tại là `pass`)
-2. **`agents.py`** (dòng 31-35): Triển khai logic Reflexion loop — gọi `reflector()`, cập nhật `reflection_memory`
-3. **`prompts.py`**: Viết System Prompt cho Actor, Evaluator, và Reflector
+# Chạy benchmark
+python run_benchmark.py --dataset data/hotpot_subset_100.json --out-dir outputs/full_run_100 --live
 
-### Bước 3: Thay thế Mock bằng LLM thật
-Thay thế 3 hàm trong `mock_runtime.py` bằng LLM call thật:
+# Chấm điểm
+python autograde.py --report-path outputs/full_run_100/report.json
+```
 
-| Hàm mock | Thay bằng |
-|---|---|
-| `actor_answer()` | Gửi `ACTOR_SYSTEM` + question + context → LLM → parse câu trả lời |
-| `evaluator()` | Gửi `EVALUATOR_SYSTEM` + question + gold_answer + predicted → LLM → parse `JudgeResult` |
-| `reflector()` | Gửi `REFLECTOR_SYSTEM` + question + wrong answer + lý do sai → LLM → parse `ReflectionEntry` |
+### Golden Test Set (không dùng gold trong vòng lặp)
 
-Có thể sử dụng: Ollama, vLLM, OpenAI API, Gemini API, hoặc bất kỳ LLM nào.
+```bash
+python run_golden.py hotpot_golden.json --out-dir outputs/golden_run
 
-### Bước 4: Tạo dữ liệu test và chạy Benchmark
+# Chấm nhanh sau khi có gold answer (local)
+python scripts/score_golden.py
+```
 
-> **Quan trọng:** File `data/hotpot_mini.json` chỉ có 8 câu hỏi và được thiết kế cho mock runtime. Bạn **cần tự tạo thêm dữ liệu test** để kiểm tra implementation của mình.
+Nộp file: `outputs/golden_run/predictions.json`
 
-**Cách tạo dữ liệu test:**
-- Tải từ [HotpotQA dataset](https://hotpotqa.github.io/) hoặc từ https://drive.google.com/file/d/1382R9RhGUFZZpuRsfi8BMKuv3yorOB9H/view?usp=sharing và chuyển đổi sang format `QAExample`:
-  ```json
-  {
-    "qid": "my_q1",
-    "difficulty": "medium",
-    "question": "Câu hỏi multi-hop...",
-    "gold_answer": "Đáp án đúng",
-    "context": [
-      {"title": "Nguồn 1", "text": "Thông tin liên quan..."},
-      {"title": "Nguồn 2", "text": "Thông tin liên quan..."}
-    ]
-  }
-  ```
-- Hoặc tự viết câu hỏi multi-hop của riêng bạn
-- Lưu vào `data/` và chạy: `python run_benchmark.py --dataset data/my_test_set.json`
+## Streamlit demo
 
-**Yêu cầu tối thiểu:** Chạy benchmark trên ít nhất **100 mẫu** để đạt điểm đầy đủ cho phần Experiment (`autograde.py` kiểm tra `num_records >= 100`).
+```bash
+streamlit run streamlit_app.py
+```
 
-### Bước 5: Tính toán Token thực tế
-Thay thế `token_estimate` và `latency_ms` hardcoded trong `agents.py` bằng giá trị thật từ LLM response.
+- **Benchmark report** — biểu đồ và metrics từ `outputs/full_run_100`
+- **Question explorer** — so sánh ReAct vs Reflexion từng câu
+- **Live demo** — chạy thử một câu (mock hoặc live)
+
+## Kiến trúc
+
+```
+Question + Context
+    → Actor (ReAct: 1 lần | Reflexion: tối đa 3 lần)
+    → Evaluator (gold hoặc self-eval)
+    → (nếu sai) Planner + Reflector → reflection memory → retry
+```
+
+**Runtime:** `runtime.py` tự chọn `mock_runtime.py` hoặc `openai_runtime.py` theo `OPENAI_API_KEY` / `USE_MOCK_RUNTIME`.
+
+**Extensions đã triển khai:**
+- `structured_evaluator` — JSON evaluator với `score`, `reason`, `missing_evidence`, `spurious_claims`
+- `reflection_memory` — lưu lesson/strategy giữa các attempt
+- `plan_then_execute` — planner trước mỗi retry
+- `memory_compression` — giữ tối đa 3 reflection gần nhất
+- `adaptive_max_attempts` — dừng sớm khi loop
+- `benchmark_report_json` — báo cáo JSON + Markdown
 
 ## Tiêu chí chấm điểm (Rubric)
 
 | Phần | Điểm | Yêu cầu |
 |---|---:|---|
 | **Core Flow** | **80** | |
-| Schema completeness | 30 | Report có đủ các key: `meta`, `summary`, `failure_modes`, `examples`, `extensions`, `discussion` |
-| Experiment completeness | 30 | Có cả ReAct + Reflexion, ≥100 records, ≥20 examples chi tiết |
-| Analysis depth | 20 | ≥3 failure modes được phân tích, discussion ≥250 ký tự |
-| **Bonus** | **20** | Triển khai ≥1 extension (mỗi extension = 10đ, tối đa 20đ) |
-
-**Bonus extensions:** `structured_evaluator`, `reflection_memory`, `adaptive_max_attempts`, `memory_compression`, `mini_lats_branching`, `plan_then_execute`, `benchmark_report_json`, `mock_mode_for_autograding`
-
-## ⏰ Golden Test Set (Bonus cuối ngày)
-
-> Trong **15 phút cuối** của buổi lab, giảng viên sẽ phát một **Golden Test Set** — bộ dữ liệu test mà học viên chưa từng thấy trước đó.
->
-> Bạn sẽ chạy agent của mình trên bộ dữ liệu này và nộp kết quả. Điểm từ Golden Test Set sẽ được dùng để **xếp hạng và tính điểm bonus** giữa các nhóm.
->
-> **Lưu ý:** Đây là lý do bạn cần đảm bảo agent hoạt động tốt trên **nhiều loại câu hỏi khác nhau**, không chỉ trên `hotpot_mini.json`. Hãy tự tạo dữ liệu test đa dạng để kiểm tra trước!
+| Schema completeness | 30 | `meta`, `summary`, `failure_modes`, `examples`, `extensions`, `discussion` |
+| Experiment completeness | 30 | ReAct + Reflexion, ≥100 records, ≥20 examples |
+| Analysis depth | 20 | ≥3 failure modes, discussion ≥250 ký tự |
+| **Bonus** | **20** | ≥2 extensions (10đ/extension, tối đa 20đ) |
 
 ## Thành phần mã nguồn
 
 | File | Mô tả |
 |---|---|
-| `src/reflexion_lab/schemas.py` | Kiểu dữ liệu: `QAExample`, `RunRecord`, `JudgeResult`, `ReflectionEntry`, ... |
-| `src/reflexion_lab/prompts.py` | Template prompt cho Actor, Evaluator, Reflector **(TODO)** |
-| `src/reflexion_lab/mock_runtime.py` | Logic giả lập LLM **(cần thay thế)** |
-| `src/reflexion_lab/agents.py` | Vòng lặp chính ReAct + Reflexion Agent **(có TODO)** |
-| `src/reflexion_lab/reporting.py` | Xuất báo cáo benchmark |
-| `src/reflexion_lab/utils.py` | Helpers: `load_dataset`, `normalize_answer`, `save_jsonl` |
-| `run_benchmark.py` | Script chạy đánh giá |
-| `autograde.py` | Chấm điểm tự động từ `report.json` |
-| `data/hotpot_mini.json` | 8 câu hỏi multi-hop mẫu (dùng cho mock) |
+| `src/reflexion_lab/agents.py` | Vòng lặp ReAct + Reflexion |
+| `src/reflexion_lab/openai_runtime.py` | LLM calls (GPT-4o-mini) |
+| `src/reflexion_lab/mock_runtime.py` | Mock deterministic |
+| `src/reflexion_lab/prompts.py` | System prompts Actor/Evaluator/Reflector/Planner |
+| `src/reflexion_lab/context_ranking.py` | Xếp hạng context passages |
+| `src/reflexion_lab/reporting.py` | Xuất `report.json` + `report.md` |
+| `run_benchmark.py` | Benchmark ReAct + Reflexion |
+| `run_golden.py` | Chạy Golden Test (Reflexion, golden inference) |
+| `streamlit_app.py` | Demo dashboard |
+| `scripts/build_hotpot_subset.py` | Tải subset từ HotpotQA (HuggingFace) |
+| `scripts/score_golden.py` | Chấm predictions vs gold (local) |
+| `scripts/refresh_report.py` | Tái tạo báo cáo kèm golden results |
+| `data/hotpot_subset_100.json` | 100 câu validation HotpotQA |
+| `hotpot_golden.json` | 20 câu Golden Test Set |
+| `outputs/full_run_100/` | Báo cáo benchmark chính (nộp lab) |
+| `outputs/golden_run/` | Predictions Golden Test |
+
+## Báo cáo
+
+Báo cáo chính: [`outputs/full_run_100/report.md`](outputs/full_run_100/report.md)
+
+Bao gồm:
+- Summary ReAct vs Reflexion
+- Reflexion recoveries
+- Golden test results (90% EM)
+- Failure modes
+- Extensions + discussion
