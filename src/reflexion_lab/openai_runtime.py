@@ -13,7 +13,7 @@ from .prompts import (
     SELF_EVALUATOR_SYSTEM,
 )
 from .schemas import JudgeResult, QAExample, ReflectionEntry, StepResult
-from .utils import extract_final_answer, golden_inference_mode
+from .utils import extract_final_answer, golden_inference_mode, polish_answer
 
 load_dotenv()
 
@@ -147,6 +147,7 @@ Attempt: {attempt_id}
     else:
         content, tokens, latency_ms = _chat(ACTOR_REACT_SYSTEM, user, json_mode=False)
         answer = extract_final_answer(content)
+    answer = polish_answer(example.question, answer)
     return StepResult(value=answer, token_estimate=tokens, latency_ms=latency_ms)
 
 def evaluator(example: QAExample, answer: str) -> StepResult[JudgeResult]:

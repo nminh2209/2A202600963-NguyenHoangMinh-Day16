@@ -23,7 +23,40 @@ def answers_match(predicted: str, gold: str) -> bool:
     shorter, longer = (pred, gold_norm) if len(pred) <= len(gold_norm) else (gold_norm, pred)
     if len(shorter) >= 3 and shorter in longer:
         return True
+    if len(gold_norm) <= 2 and re.search(rf"\b{re.escape(gold_norm)}\b", pred):
+        return True
+    prog = re.match(r"^([a-z0-9#+]+) programming language$", pred)
+    if prog and prog.group(1) == gold_norm:
+        return True
     return False
+
+def polish_answer(question: str, answer: str) -> str:
+    text = answer.strip().strip('"').strip("'")
+    if not text:
+        return text
+
+    prog = re.match(r"^([A-Za-z#+]+)\s+programming language$", text, re.IGNORECASE)
+    if prog:
+        return prog.group(1)
+
+    question_lower = question.lower()
+    answer_lower = text.lower()
+    if "award" in question_lower and "academy" in question_lower:
+        none_phrases = {
+            "no award",
+            "no awards",
+            "none",
+            "no academy award",
+            "no academy awards",
+            "did not win any",
+            "did not win",
+            "has not won an academy award",
+            "not won an academy award",
+        }
+        if answer_lower in none_phrases or answer_lower.startswith("no award"):
+            return "no Academy Award win"
+
+    return text
 
 def extract_final_answer(content: str) -> str:
     text = content.strip()

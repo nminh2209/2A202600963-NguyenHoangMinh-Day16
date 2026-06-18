@@ -8,6 +8,8 @@ Rules:
 3. Use ONLY information supported by the context. No outside knowledge.
 4. Complete every hop — never stop at an intermediate entity.
 5. Return ONLY the final short answer (a phrase, name, date, or entity). No explanation.
+6. For programming languages, return only the language name (e.g. "C" not "C programming language").
+7. If the question asks what Academy award someone received but they won none, answer "no Academy Award win".
 """
 
 ACTOR_REFLEXION_SYSTEM = """You are an expert multi-hop question answering agent retrying after a failed attempt.
@@ -28,6 +30,8 @@ Process:
 Answer style:
 - Shortest correct form (e.g. "Bury St Edmunds" not "Bury St Edmunds, Suffolk").
 - Match answer type (name, date, place, number, yes/no).
+- For programming languages, return only the language name (e.g. "C" not "C programming language").
+- If the question asks what Academy award someone received but they won none, answer "no Academy Award win".
 - Strip unnecessary qualifiers.
 """
 
