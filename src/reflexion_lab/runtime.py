@@ -1,7 +1,6 @@
 from __future__ import annotations
 import os
 from dotenv import load_dotenv
-from .schemas import JudgeResult, QAExample, ReflectionEntry, StepResult
 
 load_dotenv()
 
@@ -28,20 +27,26 @@ def reset_runtime_backend() -> None:
     global _IMPL
     _IMPL = None
 
-def actor_answer(
-    example: QAExample,
-    attempt_id: int,
-    agent_type: str,
-    reflection_memory: list[str],
-) -> StepResult[str]:
-    return _backend().actor_answer(example, attempt_id, agent_type, reflection_memory)
+def plan_question(example, wrong_answers, reflection_memory):
+    return _backend().plan_question(example, wrong_answers, reflection_memory)
 
-def evaluator(example: QAExample, answer: str) -> StepResult[JudgeResult]:
+def actor_answer(example, attempt_id, agent_type, reflection_memory, **kwargs):
+    return _backend().actor_answer(example, attempt_id, agent_type, reflection_memory, **kwargs)
+
+def evaluator(example, answer):
     return _backend().evaluator(example, answer)
 
-def reflector(example: QAExample, attempt_id: int, judge: JudgeResult) -> StepResult[ReflectionEntry]:
-    return _backend().reflector(example, attempt_id, judge)
+def reflector(example, attempt_id, judge, **kwargs):
+    return _backend().reflector(example, attempt_id, judge, **kwargs)
 
 from .mock_runtime import FAILURE_MODE_BY_QID
 
-__all__ = ["actor_answer", "evaluator", "reflector", "FAILURE_MODE_BY_QID", "use_mock_runtime", "reset_runtime_backend"]
+__all__ = [
+    "actor_answer",
+    "evaluator",
+    "plan_question",
+    "reflector",
+    "FAILURE_MODE_BY_QID",
+    "use_mock_runtime",
+    "reset_runtime_backend",
+]

@@ -7,7 +7,14 @@ from .runtime import use_mock_runtime
 from .schemas import ReportPayload, RunRecord
 
 def _default_extensions() -> list[str]:
-    extensions = ["structured_evaluator", "reflection_memory", "benchmark_report_json"]
+    extensions = [
+        "structured_evaluator",
+        "reflection_memory",
+        "benchmark_report_json",
+        "adaptive_max_attempts",
+        "memory_compression",
+        "plan_then_execute",
+    ]
     if use_mock_runtime():
         extensions.append("mock_mode_for_autograding")
     return extensions

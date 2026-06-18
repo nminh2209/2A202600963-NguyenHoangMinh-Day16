@@ -19,7 +19,7 @@ load_dotenv(ROOT / ".env")
 from src.reflexion_lab.agents import ReActAgent, ReflexionAgent
 from src.reflexion_lab.runtime import reset_runtime_backend, use_mock_runtime
 from src.reflexion_lab.schemas import RunRecord
-from src.reflexion_lab.utils import load_dataset
+from src.reflexion_lab.utils import load_dataset, golden_inference_mode
 
 DEFAULT_REPORT_DIR = ROOT / "outputs" / "full_run"
 
@@ -182,10 +182,12 @@ def render_live_demo() -> None:
         index=0 if dataset_files else None,
     )
     use_mock = st.toggle("Use mock runtime (no API cost)", value=use_mock_runtime())
+    golden_mode = st.toggle("Golden inference mode (no gold in evaluator)", value=golden_inference_mode())
     if use_mock:
         os.environ["USE_MOCK_RUNTIME"] = "1"
     else:
         os.environ["USE_MOCK_RUNTIME"] = "0"
+    os.environ["GOLDEN_INFERENCE"] = "1" if golden_mode else "0"
     reset_runtime_backend()
 
     if not dataset_path:

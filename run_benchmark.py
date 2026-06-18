@@ -14,6 +14,8 @@ if "--mock" in sys.argv:
     os.environ["USE_MOCK_RUNTIME"] = "1"
 elif "--live" in sys.argv:
     os.environ["USE_MOCK_RUNTIME"] = "0"
+if "--golden" not in sys.argv:
+    os.environ.setdefault("GOLDEN_INFERENCE", "0")
 
 from src.reflexion_lab.agents import ReActAgent, ReflexionAgent
 from src.reflexion_lab.reporting import build_report, save_report

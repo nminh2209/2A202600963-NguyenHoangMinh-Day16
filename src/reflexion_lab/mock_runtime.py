@@ -10,6 +10,7 @@ def actor_answer(
     attempt_id: int,
     agent_type: str,
     reflection_memory: list[str],
+    **_: object,
 ) -> StepResult[str]:
     if example.qid not in FIRST_ATTEMPT_WRONG:
         answer = example.gold_answer
@@ -42,7 +43,11 @@ def evaluator(example: QAExample, answer: str) -> StepResult[JudgeResult]:
         )
     return StepResult(value=judge, token_estimate=95, latency_ms=45)
 
-def reflector(example: QAExample, attempt_id: int, judge: JudgeResult) -> StepResult[ReflectionEntry]:
+def plan_question(example: QAExample, wrong_answers: list[str], reflection_memory: list[str]) -> StepResult[str]:
+    plan = "Do the second hop explicitly and verify the final entity against context."
+    return StepResult(value=plan, token_estimate=80, latency_ms=40)
+
+def reflector(example: QAExample, attempt_id: int, judge: JudgeResult, **_: object) -> StepResult[ReflectionEntry]:
     strategy = (
         "Do the second hop explicitly: birthplace city -> river through that city."
         if example.qid == "hp2"
